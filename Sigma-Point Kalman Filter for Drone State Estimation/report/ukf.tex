@@ -1,0 +1,186 @@
+% --------------------------------- Preamble -----------------------------------
+\documentclass[11pt, letterpaper, twocolumn]{article}
+
+\usepackage[T1]{fontenc} % use 8-bit fonts
+\usepackage[margin=0.75in, columnsep=0.2in, % 3.4 in columns
+    headsep=0.28in, footskip=0.42in]{geometry} % paper sizes
+\usepackage{amsmath, amsfonts, amssymb} % improved math
+\usepackage{bm} % bold math (must be after amsmath)
+\usepackage{upquote} % upright single quotes in verbatim
+\usepackage{pgfplots} % includes tikz, xcolor, graphicx
+\usepackage[colorlinks=true, allcolors=gray]{hyperref}
+
+\raggedbottom % do not force stretching text to fill the page
+\setlength{\emergencystretch}{\hsize} % avoid overfull lines
+\overfullrule=1mm % black band to show overfull lines
+\pdfsuppresswarningpagegroup=1 % remove pdf image warnings
+\frenchspacing % consistent spacing between words
+\newcommand{\ul}[1] % vectors
+    {{}\mkern1mu\underline{\mkern-1mu#1\mkern-1mu}\mkern1mu}
+\DeclareSymbolFont{euler}{U}{eur}{m}{n} % symbol font
+\DeclareMathSymbol{\PI}{\mathord}{euler}{25} % up pi
+\pgfplotsset{compat=newest} % use newest pgfplot version
+\newcommand{\EE}[2]{\ensuremath{{{#1}\!\times\!10^{#2}}}}
+% ------------------------------------------------------------------------------
+
+\title{Sigma-Point Kalman Filtering for Drone State Estimation}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Description}
+
+This project implements a Sigma-Point Kalman Filter (SPKF), specfically a Square-Root 
+Unscented Kalman Filter (UKF), for estimating the lateral motion of a drone. The system
+dynamics are nonlinear and include coupled position, speed, roll, and heading states.
+Noisy GPS position measurements are used to recursively estimate the full state
+over time.
+
+\subsection*{System Model}
+
+The state vector is:
+\[ \ul{x} = \begin{bmatrix}
+    p_x \\
+    p_y \\
+    s \\
+    \phi \\
+    \psi
+\end{bmatrix}
+\]
+where $(p_x,p_y)$ is the position of the drone, $s$ is the speed, $\phi$ is the roll
+angle, and $\psi$ is the heading angle. 
+
+The drone is modeled using coordinated-turn dynamics:
+\[\begin{aligned}
+\dot{\ul{x}} &= \begin{bmatrix}
+            s*cos\psi & s*sin\psi & a & \omega & \frac{g}{s}sin\phi
+        \end{bmatrix} ^T + \ul{\nu} \\
+\ul{\nu} &\sim N(0,\bm{Q}) \\
+\bm{Q} &= diag\begin{bmatrix}
+            0.1^2 & 0.1^2 & 0.1^2 & (2\frac{\pi}{180})^2 & (2\frac{\pi}{180})^2
+        \end{bmatrix}
+\end{aligned}\]
+where $a$ is the acceleration input, $\omega$ is the roll-rate input, and $g$
+is acceleration of gravity $(9.8 m/s^2)$.
+
+The drone has noisy GPS measurements of $(p_x, p_y)$ position:
+\[\begin{aligned}
+    \bm{z} &= \bm{H}\ul{x} + \ul{\eta} \\
+\bm{H} &= \begin{bmatrix}
+            1 & 0 & 0 & 0 & 0 \\
+            0 & 1 & 0 & 0 & 0
+        \end{bmatrix} \\
+\ul{\eta} &\sim N(0,\bm{R}) \\
+\bm{R} &= diag\begin{bmatrix}
+            3^2 & 3^2
+        \end{bmatrix}
+\end{aligned}\]
+
+\section*{Sigma-Point Kalman Filtering}
+
+Sigma-Point Kalmaning Filters approximate the propagation of a Gaussian distribution through
+nonlinear dynamics using a deterministic set of sample points. These sigma points are chosen
+to capture the mean and covariance of the state distribution.
+
+Each sigma point is propagated through the nonlinear system, and the transformed points are 
+recombined to recover the mean and covariance. This approach avoids linearization and provides
+improved accuracy compared to the Extended Kalman Filter.
+
+\subsection*{Unscented Kalman Filter}
+
+In this project, the sigma-point framework is implemented using the Unscented transform. The UKF
+selects sigma points based on the current state estimate and covariance, propagates them through
+the nonlinear dynamics, and computes weighted estimates of the predicted mean and covariance.
+
+The accuracy of the UKF depends on selecting the optimal values for the parameters $\alpha$,
+$\beta$, and $\kappa$. $\alpha$ controls the spread of sigma points around the mean, $\beta$
+encodes prior knowledge about the distribution, and $\kappa$ is a secondary scaling parameter.
+
+\subsection*{Square-Root Formulation}
+
+A square-root form of the UKF is used in this implementation. Instead of propagating the covariance
+matrix directly, the filter maintains and propagates its Cholesky factor.
+
+This approach provides several advantages:
+\begin{itemize}
+    \item improved numerical stability
+    \item preservation of positive definiteness
+    \item reduced sensitivity to roundoff errors
+\end{itemize}
+
+These properties are especially important in nonlinear estimation problems, where covariance 
+matrices can degrade over time when propagated directly.
+
+\section*{Simulation Setup}
+
+The filter is run with a sampling period of 0.1 s over 1000 samples. The initial state
+estimate is
+\[
+\hat{\ul{x}} = \begin{bmatrix}
+    0 & 0 & 25 & 0 & 0
+\end{bmatrix}^{\top}
+\]
+with initial covariance
+\[
+\hat{\mathbf{P}} = \mathrm{diag}\left(\begin{bmatrix}
+    10^2 & 10^2 & 3^2 & (\frac{1}{18})^2 & (\frac{1}{18})^2
+\end{bmatrix}
+    \right)
+\]
+
+\section*{Results}
+
+Figure~\ref{fig:path} shows the true and estimated drone trajectory.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_paths.pdf}
+    \caption{True and estimated drone trajectory}
+    \label{fig:path}
+\end{figure}
+
+\pagebreak
+
+Figures~\ref{fig:perr}--\ref{fig:ryerr} show the position, speed, roll, and heading 
+errors over time along with their corresponding $3-\sigma$ bounds.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_position_errors.pdf}
+    \caption{Position errors}
+    \label{fig:perr}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_speed_error.pdf}
+    \caption{Speed errors}
+    \label{fig:serr}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_angle_errors.pdf}
+    \caption{Roll and Heading errors}
+    \label{fig:ryerr}
+\end{figure}
+
+\pagebreak
+
+\section*{Discussion}
+
+The results demonstrate the sigma-point filtering is effective for nonlinear flight dynamics.
+Even with limited measurements, the filter is able to infer the full state through the
+structure of the system dynamics.
+
+The square-root formulation improves numerical robustness and helps maintain a consistent
+covariance representation over time. This is particularly important for nonlinear systems
+and longer simulations.
+
+This project highlights the advantage of sigma-point methods: accurate nonlinear estimation
+without requiring analytical linearization, combined with strong numerical properties when
+implemented in square-root form.
+
+\end{document}

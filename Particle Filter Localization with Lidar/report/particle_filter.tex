@@ -1,0 +1,275 @@
+% --------------------------------- Preamble -----------------------------------
+\documentclass[11pt, letterpaper, twocolumn]{article}
+
+\usepackage[T1]{fontenc} % use 8-bit fonts
+\usepackage[margin=0.75in, columnsep=0.2in, % 3.4 in columns
+    headsep=0.28in, footskip=0.42in]{geometry} % paper sizes
+\usepackage{amsmath, amsfonts, amssymb} % improved math
+\usepackage{bm} % bold math (must be after amsmath)
+\usepackage{upquote} % upright single quotes in verbatim
+\usepackage{pgfplots} % includes tikz, xcolor, graphicx
+\usepackage[colorlinks=true, allcolors=gray]{hyperref}
+
+\raggedbottom % do not force stretching text to fill the page
+\setlength{\emergencystretch}{\hsize} % avoid overfull lines
+\overfullrule=1mm % black band to show overfull lines
+\pdfsuppresswarningpagegroup=1 % remove pdf image warnings
+\frenchspacing % consistent spacing between words
+\newcommand{\ul}[1] % vectors
+    {{}\mkern1mu\underline{\mkern-1mu#1\mkern-1mu}\mkern1mu}
+\DeclareSymbolFont{euler}{U}{eur}{m}{n} % symbol font
+\DeclareMathSymbol{\PI}{\mathord}{euler}{25} % up pi
+\pgfplotsset{compat=newest} % use newest pgfplot version
+\newcommand{\EE}[2]{\ensuremath{{{#1}\!\times\!10^{#2}}}}
+% ------------------------------------------------------------------------------
+
+\title{Particle Filter Localization with Lidar}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Description}
+
+This project implements a particle filter for robot localization in a mapped
+indoor environment. The robot state consists of planar position and heading, 
+and the filter uses control inputs together with noisy lidar range measurements
+to estimate the robot pose over time. The particle filter represents the state
+distribution using weighted samples, making it well suited for nonlinear
+systems and non-Gaussian uncertainty.
+
+\subsection*{Problem Formulation}
+
+The robot state is defined as
+\[
+x = \begin{bmatrix} p_x \\ p_y \\ \theta \end{bmatrix}
+\]
+where $p_x$ and $p_y$ are the 2D position coordinates and $\theta$ is the heading
+angle.
+
+The input consists of the commanded speed $s$ and heading rate $\omega$, while 
+the measurement is a scalar lidar range to the nearest wall. Ground-truth states,
+inputs, and measurements are provided from the recorded data. The goal is to 
+estimate the robot pose over time using a particle filter.
+
+\subsection*{System Model}
+
+The continuous-time dynamics are given by 
+\[\begin{aligned}
+\dot{p}_x &= (s+\nu_s)\cos(\theta) \\
+\dot{p}_y &= (s+\nu_s)\sin(\theta) \\
+\dot{\theta} &= \omega + \nu_{\omega}
+\end{aligned}
+\]
+where $\nu_s$ and $\nu_{\omega}$ are process noise terms.
+
+Using forward Euler integration with sampling period $T$, the discrete-time model becomes
+\[\begin{aligned}
+p_{x,k+1} &= p_{x,k} + (s_k + \nu{s,k})\cos(\theta_k)T \\
+p_{y,k+1} &= p_{y,k} + (s_k + \nu{s,k})\sin(\theta_k)T \\
+\theta_{k+1} &= \theta_k + (\omega_k + \nu_{\omega, k})T
+\end{aligned}
+\]
+The lidar measurement model is nonlinear and is evaluated using the provided map-based
+function $h(x,k)$.
+
+\subsection*{Initial Conditions}
+
+We define the following covariance matrices
+\[\begin{aligned}
+P_0 &= \begin{bmatrix}
+    {\sigma_x}^2 & 0 & 0 \\
+    0 & {\sigma_y}^2 & 0 \\
+    0 & 0 & {\sigma_z}^2
+\end{bmatrix} &\quad Q &= \begin{bmatrix}
+    {\sigma_s}^2 & 0 \\
+    0 & {\sigma_{\omega}}^2
+\end{bmatrix} \\ 
+R &= {\sigma_r}^2 &\quad \sigma_r &= 10 cm \\
+\sigma_x &= 0.1 cm &\quad \sigma_s &= 32 cm/s \\
+\sigma_y &= 0.1 cm &\quad \sigma_{\omega} &= 0.55 rad/s \\
+\sigma_a &= 5\times10^{-5} rad   
+\end{aligned}  
+\]
+Where $P_0$ is the initial state covariance matrix, $Q$ is the process noise covariance
+matrix, and $R$ is the measurement noise. Each $\sigma^2$ is the covariance term for 
+its respective state/input/measurement.
+
+\section*{Particle Filter Method}
+
+The state distribution is represented by a set of particles and associated weights. The
+particles are initalized from a Gaussian distribution with mean equal to the initial 
+true state and covariance determined by the assumed uncertainty in position and heading.
+
+At each time step, the filter performs the following steps:
+
+\textbf{Update:} The particle weights are updated using the likelihood of the lidar 
+measurement under a Gaussian measurement noise model.
+
+\textbf{Estimate:} The state estimate is computed as the weighted average of the particles,
+and the state covariance is estimated from the weighted particle deviations.
+
+\textbf{Resample:} When the effective number of particles becomes too small, resampling is
+performed to eliminate low-weight particles and duplicate high-weight particles.
+
+\textbf{Propagate:} The particles are advanced through the nonlinear dynamics using the 
+measured inputs and independently sampled process noise.
+
+\section*{Simulation}
+
+The particle filter is evaluated under four different initialization conditions:
+
+\begin{enumerate}
+    \item Known starting position and known heading (10 particles)
+    \item Unknown starting position and known heading (25 particles)
+    \item Known starting position and unknown heading (40 particles)
+    \item Unknown starting position and unknown heading (650 particles)
+\end{enumerate}
+
+When the starting position is known, the initial position standard deviations are set
+to nominal values. When the starting position is unknown, the initial standard deviations
+in $x$ and $y$ are increased to 100 cm. When the starting heading is unknown, the 
+initial heading standard deviation is set to $\pi$ rad.
+
+These cases illustrate how the required number of particles increases as the initial
+uncertainty becomes larger.
+
+\pagebreak
+
+\section*{Results}
+
+\subsection*{Path Plots}
+
+Figures~\ref{fig:paths1}--\ref{fig:paths4} show the true and estimated robot trajectories
+for the four initialization cases. \\
+    
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_paths_1.pdf}
+    \caption{Known starting position and known heading.}
+    \label{fig:paths1}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_paths_2.pdf}
+    \caption{Unknown starting position and known heading.}
+    \label{fig:paths2}
+\end{figure}
+
+\pagebreak
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_paths_3.pdf}
+    \caption{Known starting position and unknown heading.}
+    \label{fig:paths3}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_paths_4.pdf}
+    \caption{Unknown starting position and unknown heading.}
+    \label{fig:paths4}
+\end{figure}
+
+\pagebreak
+
+\subsection*{Error Plots}
+
+For the cold-start case, Figures~\ref{fig:xerr}--\ref{fig:aerr} show the estimation 
+errors for position and heading.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_x_error.pdf}
+    \caption{$x$-position estimation error.}
+    \label{fig:xerr}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_y_error.pdf}
+    \caption{$y$-position estimation error.}
+    \label{fig:yerr}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_a_error.pdf}
+    \caption{Heading estimation error.}
+    \label{fig:aerr}
+\end{figure}
+
+\pagebreak
+
+\subsection*{Observations}
+
+Starting with the two cases that are the most intuitive, the first case, 
+with a known starting position and known heading performed very well, even
+with just 10 particles. This is because it is quite easy to track on object
+with low noise, even with only 10 particles. 
+
+The second intuitive case is the fourth case, with both an unknown starting
+position and an unknown heading. The filter performed well overall, but took
+the longest to converge on the truth. With a large region of position uncertainty
+and a large range of heading possibilities, it takes a large number of
+particles to encapsulate the truth. However, after the measurements come in,
+the particles closest to truth will begin to be weighted much higher and
+the filter will quickly converge (assuming good measurements).
+
+The cases that are fairly unintuitive are cases 2 and 3, where only one
+of the position and heading is unknown. Case 2, with an unknown position
+and a known heading, consistently produced the highest error. Taking a longer
+amount of time to converge, on average, than case 4 seems counterintuitive,
+but diving deeper makes sense. The initial uncertainty of the robots
+position is just as large as case 4, but with far fewer particles. As a 
+result, the particles are spread too thin to find the robot's true location.
+The filter then latches onto incorrect position estimates, which in turn
+corrupt the "known" heading estimate as the filter tries to explain
+measurement errors. 
+
+The last case is case 3, with a known position and unknown heading. I orginally
+thought this would be a higher error case, but it turned out to be the lowest
+on average. I underestimated the power of adding more particles, and 40
+turned out to be more than enough to cover the range of possible headings.
+With the position known, the lidar measurements provide very clear information,
+allowing the filter to quickly and accurately determine the correct heading.
+However, as you decrease the number of particles, this case causes
+a divergence of the filter quite often.
+
+Most of what we discussed above was about the initial conditions of the
+particle filter and how long each took to converge. One important thing
+to note is that after convergence, the filters with more particles estimated
+the true position of the robot more accurately. This seems fairly self-explanatory.
+
+On the topic of resampling, it is also important to note the effective
+sample values I found to be most accurate. I ended up keep Je = 0.6, so 
+if the effective number of samples drops below 0.6, I would resample. This
+number seems reasonable in that it is not too high that we let the particles
+spread out too much, and not too low that we don't let them spread out enough.
+On average, this number looked to provide the highest accuracy in each case.
+Lowering or increasing the number significantly caused the filter to 
+diverge frequently, as expected.
+
+\section*{Discussion}
+
+The results show that particle filters can successfully localize a robot in a 
+nonlinear environment using noisy control inputs and lidar measurements. When
+the initial uncertainty is small, relatively few particles are needed because
+the filter only needs to represent a narrow region of the state space. As the
+initial uncertainty increases, many more particles are required to adequately
+cover the possible robot poses.
+
+From the animation, the particles tended to spread out in regions where the 
+lidar measurements were less informative or where multiple poses produced
+similar expected measurements. The particles coalesced when the robot encountered
+geometrically informative parts of the environment, allowing the measurement
+udpate to strongly favor a smaller subset of poses.
+
+This behavior highlights one of the main strengths of the particle filter: it
+can represent multi-hypothesis uncertainty and then concentrate around the 
+correct solution as informative measurements become available.
+
+\end{document}

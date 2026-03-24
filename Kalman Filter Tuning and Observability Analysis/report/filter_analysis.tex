@@ -1,0 +1,332 @@
+% --------------------------------- Preamble -----------------------------------
+\documentclass[11pt, letterpaper, twocolumn]{article}
+
+\usepackage[T1]{fontenc} % use 8-bit fonts
+\usepackage[margin=0.75in, columnsep=0.2in, % 3.4 in columns
+    headsep=0.28in, footskip=0.42in]{geometry} % paper sizes
+\usepackage{amsmath, amsfonts, amssymb} % improved math
+\usepackage{bm} % bold math (must be after amsmath)
+\usepackage{upquote} % upright single quotes in verbatim
+\usepackage{pgfplots} % includes tikz, xcolor, graphicx
+\usepackage[colorlinks=true, allcolors=gray]{hyperref}
+
+\raggedbottom % do not force stretching text to fill the page
+\setlength{\emergencystretch}{\hsize} % avoid overfull lines
+\overfullrule=1mm % black band to show overfull lines
+\pdfsuppresswarningpagegroup=1 % remove pdf image warnings
+\frenchspacing % consistent spacing between words
+\newcommand{\ul}[1] % vectors
+    {{}\mkern1mu\underline{\mkern-1mu#1\mkern-1mu}\mkern1mu}
+\DeclareSymbolFont{euler}{U}{eur}{m}{n} % symbol font
+\DeclareMathSymbol{\PI}{\mathord}{euler}{25} % up pi
+\pgfplotsset{compat=newest} % use newest pgfplot version
+\newcommand{\EE}[2]{\ensuremath{{{#1}\!\times\!10^{#2}}}}
+% ------------------------------------------------------------------------------
+
+\title{Kalman Filter Tuning and Observability Analysis}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Description}
+
+This project extends a linear Kalman Filter implementation by evaluating estimator
+consistency and system observability. In addition to state estimation, three
+performance metrics are studied: the mean squared error (MSE), the average normalized
+error estimate squared (ANEES), and the average normalized innovation squared (ANIS).
+The project also examines how observability changes under modifications to the 
+measurement and dynamics models.
+
+\subsection*{System Model}
+
+The system is the same linear position-velocity model used in the previous Kalman
+Filter project. The state is
+
+\[
+x = \begin{bmatrix}
+    p_x \\
+    p_y \\
+    v_x \\
+    v_y
+\end{bmatrix}
+\]
+with linear dynamics and linear measurements. Process and measurement noise are 
+modeled as zero-mean Gaussian random variables with covariances $Q$ and $R$.
+
+Truth data are generated using fixed baseline values of $Q$ and $R$, while the
+estimator is run using scaled versions of these matrices to study the effect
+of covariance mismatch.
+
+\section*{Consistency Metrics}
+
+Three metrics are used to evaluate estimator performance.
+
+\textbf{Mean Squared Error (MSE):}
+\[
+\mathrm{MSE} = \frac{1}{K} \sum_{k=1}^{K} \ul{e}_k^{\top}\ul{e}_k
+\]
+where
+\[
+\ul{e}_k = \ul{x}_k - \hat{\ul{x}}_k
+\]
+is the state estimation error.
+
+\textbf{Average Normalized Error Estimate Squared (ANEES):}
+\[
+\mathrm{ANEES} = \frac{1}{KN} \sum_{k=1}^{K} \ul{e}_k^{\top}\hat{\mathbf{P}}^{-1}\ul{e}_k
+\]
+This metric computes the actual estimation error to the filter's predicted
+covariance. For a consistent estimator, the ANEES should approach 1.
+
+\textbf{Average Normalized Innovation Squared (ANIS):}
+\[
+\mathrm{ANIS} = \frac{1}{KM} \sum_{k=1}^{K} \ul{r}^{\top}\hat{\mathbf{S}}^{-1}\ul{r}
+\]
+where
+\[
+\ul{r} = \ul{z} - \mathbf{H}\hat{\ul{x}}
+\]
+is the innovation and
+\[
+\mathbf{S} = \mathbf{H}\hat{\mathbf{P}}\mathbf{H}^{\top} + \mathbf{R}
+\]
+is its covariance. Like the ANEES, the ANIS should also approach 1 for a 
+well-tuned estimator.
+
+\section*{Covariance Scaling Study}
+
+The truth data and measurements are generated using fixed baseline covariance
+matrices $Q$ and $R$. The estimator is then run over 49 combinations of scaled
+covariance matrices using the factors
+\[
+\left\{ \frac{1}{16}, \frac{1}{9}, \frac{1}{4}, 1, 4, 9, 16 \right\}
+\]
+
+The process noise covariance scaling increases down the rows of the analysis
+matrices, and the measurement noise covariance scaling increases across the 
+columns. For each combination, the MSE, ANEES, and ANIS metrics are computed
+and stored in $7 \times 7$ matrices.
+
+This study shows how sensitive the estimator is to incorrect assumptions 
+about the process and measurement uncertainty.
+
+\section*{Observability Analysis}
+
+The observability of the system is analzyed using the observability matrix
+\[
+O = \begin{bmatrix}
+    \mathbf{H} \\
+    \mathbf{HF} \\
+    \vdots \\
+    \mathbf{H}\mathbf{F}^{l-1}
+\end{bmatrix} \quad
+l = \left\lceil \frac{N}{M} \right\rceil
+\]
+
+The singular value decomposition (SVD) of the observability matrix is then computed:
+\[
+O = USV^{\top}
+\]
+
+The singular values indicate the strength of observability in different directions of
+the state space, while the rows of $V^{\top}$ give the corresponding observability
+vectors. Zero or near-zero singular values indicate non-observable or weakly 
+observable directions.
+
+\section*{Modified Systems}
+
+Two system modifications are studied.
+
+\subsection*{Measurement Modification}
+
+The measurement model is changed so that one position-related measurement is replaced
+by a velocity measurement component. The observability matrix, singular values, and
+observability vectors are then recomputed. The modified H matrix is
+\[
+\mathbf{H} = \begin{bmatrix}
+    \cos(\theta) & \sin(\theta) & 0 & 0 \\
+    0 & 0 & 1 & 0
+\end{bmatrix}
+\]
+
+\subsection*{Dynamics Modification}
+
+Keeping the modified measurement model, the dynamics are further changed so that the
+state coordinates rotate at a constant rate. This alters the coupling between the
+states and changes the observability of the system. The resulting observability
+matrix and singular values demonstrate that both the dynamics model and the 
+measurement model joint determine which state directions are observable.
+The modified $\Phi$ matrix is
+\[
+\Phi = \begin{bmatrix}
+    0 & \gamma & 1 & 0 \\
+    -\gamma & 0 & 0 & 1 \\
+    0 & 0 & 0 & \gamma \\
+    0 & 0 & -\gamma & 0
+\end{bmatrix}
+\]
+where $\gamma = \frac{4\pi}{180}$ corresponds to a rotation of the coordinate 
+sytem of the state space at the rate of 4 degrees per second clockwise.
+
+\section*{Results}
+
+Figures~\ref{fig:mse}, \ref{fig:anees}, and \ref{fig:anis} show the MSE, ANEES,
+and ANIS values across all 49 covariance-scaling combinations.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_mse.pdf}
+    \caption{MSE under process and measurement covariance scaling}
+    \label{fig:mse}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_anees.pdf}
+    \caption{ANEES under process and measurement covariance scaling}
+    \label{fig:anees}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_anis.pdf}
+    \caption{ANIS under process and measurement covariance scaling}
+    \label{fig:anis}
+\end{figure}
+
+\pagebreak
+
+Figures~\ref{fig:unmodified}--\ref{fig:modified} show the observability
+matrices and singular values for the modified and unmodified systems.
+
+\begin{figure}[h]
+    \centering
+    \[ \begin{aligned}
+        s &= \{ 1, 1, 1, 1 \} \\
+        \bm{V}^\top &= \begin{bmatrix}
+            -1 & 0 & 0 & 0 \\
+            0 & 1 & 0 & 0 \\
+            0 & 0 & -1 & 0 \\
+            0 & 0 & 0 & 1
+        \end{bmatrix}
+    \end{aligned} 
+    \]
+    \caption{Observability matrix and singular values for unmodified system}
+    \label{fig:unmodified}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \[ \begin{aligned}
+        s &= \{ 1.31, 1, 0.54, 0 \} \\
+        \bm{V}^\top &= \begin{bmatrix}
+            0 & 0 & 0.92 & 0.38 \\
+            0.71 & 0.71 & 0 & 0 \\
+            0 & 0 & -0.38 & 0.92 \\
+            -0.71 & 0.71 & 0 & 0
+        \end{bmatrix}
+    \end{aligned} 
+    \]
+    \caption{Observability matrix and singular values for measurement-only modification}
+    \label{fig:measonly}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \[ \begin{aligned}
+        s &= \{ 1.31, 1, 0.55, 0.01 \} \\
+        \bm{V}^\top &= \begin{bmatrix}
+            0.03 & -0.03 & -0.92 & -0.38 \\
+            0.71 & 0.71 & 0 & 0 \\
+            0.06 & -0.06 & 0.39 & -0.92 \\
+            0.7 & -0.7 & 0 & 0.1
+        \end{bmatrix}
+    \end{aligned} 
+    \]
+    \caption{Observability matrix and singular values for measurement and dynamics modification}
+    \label{fig:modified}
+\end{figure}
+
+\pagebreak
+
+\section*{Observations}
+
+\subsection*{MSE}
+
+The highest MSE values were the ones with Q and R having opposing end
+scale factors. For example Q scaled by 1/16 and R scaled by 16 leads to
+a large MSE because our filter will almost solely follow the dynamics.
+Similarly, Q scaled by 16 and R scaled by 1/16 will have the opposite
+effect on the filter, essentially following only the measurements. Both
+of these cases and cases where Q and R are scaled similarly apart produce
+large MSE's because our dynamics and measurements are noisy by themselves.
+It then follows logically that when Q and R are scaled the same amount, it
+leads to the lowest (and best) MSEs. 
+
+One interesting thing of note is that
+our MSEs tend to be slightly better, in this scenario, when Q and R are
+scaled the highest (but still the same amount). This is actually a minor
+bug in our setup, which is explained in two ways. The first is that the 
+covariance matrix P evolves according to the discrete-time Riccati recursion.
+The solution to this equation requires an infinite time horizon. So, if we 
+increased the number of steps in our simulation, our MSE would be equal along
+the big diagonal. The second explanation is that when we scale Q by
+some value k, we should also scale the prior P0 by the same amount. Scaling
+P0 by the same amount as Q fixed this behavior along the diagonal, as expected.
+
+\subsection*{ANEES}
+
+The highest ANEES values are in the top left corner, where both Q and R
+are scaled to be very low. This leads to a very small covariance matrix
+which harshly penalizes our larger errors. A high ANEES score means our
+filter is overconfident, which makes sense with Q and R values lower than
+truth. Similarly, the lowest ANEES values are in the lower right corner,
+where both Q and R are scaled to be very high. This leads to a large covariance
+matrix which forgives even the largest errors. A low ANEES score means our 
+filter is underconfident, which makes sense with Q and R values higher
+than truth. Lastly, our closest values to 1 are in the middle, where the
+filter Q and R most accurately represent the truth Q and R.
+
+\subsection*{ANIS}
+
+Similar to ANEES, the ANIS values are highest in the top left corner,
+and the lowest in the bottom right corner. The main difference with ANIS
+is that the score is more sensitive to changes in R. This is because 
+ANIS directly deals with R when it calculates difference from expected 
+measurement. The fact that the R noise is higher than the Q noise in 
+generation and in the baseline estimation is also a factor. We again
+notice that our values closest to 1 are at the positions closest to 
+the truth Q and R, with R being more sensitive here too.
+
+\subsection*{Observability}
+
+For both the unmodified case and the case where the measurements and
+dynamics were modified, we notice that all states in the system are
+observable, though the unmodified case had ``more'' observable states.
+
+In the case where only the measurements are modified, we note one 
+linear combination of states that is ``unobservable''. The unobservable
+direction is $-p_x$ + $p_y$ as shown by $s_4 = 0$ and row 4 of 
+$V^T$ = $-sin\theta$, $cos\theta$, 0, 0.
+
+\section*{Discussion}
+
+The covariance scaling study shows that estimator performance depends
+strongly on the assumed values of $Q$ and $R$. When these covariances
+are poorly tuned, the filter may still produce estimates, but the resulting 
+uncertainty no longer matches the true estimation error. This is reflected
+by ANEES and ANIS values that deviate from 1.
+
+The observability analysis shows that accurate estimation is not determined
+by the measurement model alone. The dynamics also influence which directions
+in state space can be reconstructed from the available measurements. 
+Modifying the measurement model can reduce observability, while modifying
+the dynamics can restore coupling that improves it.
+
+Together, these results highlight two central ideas in state estimation:
+a filter must be both well tuned and applied to a system whose states
+are sufficiently observable.
+
+\end{document}

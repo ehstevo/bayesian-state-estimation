@@ -1,0 +1,154 @@
+% --------------------------------- Preamble -----------------------------------
+\documentclass[11pt, letterpaper, twocolumn]{article}
+
+\usepackage[T1]{fontenc} % use 8-bit fonts
+\usepackage[margin=0.75in, columnsep=0.2in, % 3.4 in columns
+    headsep=0.28in, footskip=0.42in]{geometry} % paper sizes
+\usepackage{amsmath, amsfonts, amssymb} % improved math
+\usepackage{bm} % bold math (must be after amsmath)
+\usepackage{upquote} % upright single quotes in verbatim
+\usepackage{pgfplots} % includes tikz, xcolor, graphicx
+\usepackage[colorlinks=true, allcolors=gray]{hyperref}
+
+\raggedbottom % do not force stretching text to fill the page
+\setlength{\emergencystretch}{\hsize} % avoid overfull lines
+\overfullrule=1mm % black band to show overfull lines
+\pdfsuppresswarningpagegroup=1 % remove pdf image warnings
+\frenchspacing % consistent spacing between words
+\newcommand{\ul}[1] % vectors
+    {{}\mkern1mu\underline{\mkern-1mu#1\mkern-1mu}\mkern1mu}
+\DeclareSymbolFont{euler}{U}{eur}{m}{n} % symbol font
+\DeclareMathSymbol{\PI}{\mathord}{euler}{25} % up pi
+\pgfplotsset{compat=newest} % use newest pgfplot version
+\newcommand{\EE}[2]{\ensuremath{{{#1}\!\times\!10^{#2}}}}
+% ------------------------------------------------------------------------------
+
+\title{2D Bayesian Filtering with Multimodal Dynamics}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Description}
+
+The overall goal of this project is to implement a Bayesian filter over a 2D
+continuous space, estimating the location of a car with a measurement model and
+a dynamic model. The dynamic model has no deterministic propagation, only a
+dynamic noise PDF.
+
+The state of the system is the two-dimensional position of the vehicle,
+\[
+x = \begin{bmatrix} x \\ y \end{bmatrix}
+\]
+
+Each time step, the car moves approximately 5~m. It can either move forward 5~m,
+or mainly forward but to the left or right as well (forward 4~m, left or right
+3~m). More specifically, the probability of moving left is 0.3, right is 0.3,
+and straight is 0.4. Around each movement, there is an isotropic (same in all
+directions) Gaussian with variance of 0.1~m$^2$. These possible motions are shown here: \\
+\includegraphics[width=\linewidth]{../figures/fig_motions.png}
+
+The measurement also will be an isotropic Gaussian distribution with variance
+4~m$^2$.
+
+The initial location of the car is a Gaussian random variable, centered at (0,
+0), with an isotropic covariance matrix of 0.6~m$^2$.
+
+\section*{Discretization and Representation}
+
+The continuous state space is approximated using a discrete grid with resolution
+$dx = 0.2$ m. The domain is chosen to encompass both the true trajectory and
+measurement data, with additional margin to account for uncertainty.
+
+A mesh grid $(X,Y)$ is constructed to represent all possible positions.
+Probability density functions are evaluated over this grid.
+
+The initial state, process noise, and measurement likelihood are all
+modeled as Gaussian distributions evaluated on the grid using a 
+two-dimensional normal distribution.
+
+\section*{Bayesian Filtering}
+
+The state distribution is propagated using a recursive Bayesian filtering framework.
+
+\textbf{Measurement Update:} The prior distribution is updated using the measurement
+likelihood:
+\[
+p(x) \propto p(z{\mid}x) p(x)
+\]
+
+\textbf{Time Propagation:} The updated distribution is propagated using convolution
+with the process noise distribution:
+\[
+p(x_{k+1}) = p(x_k)*p(\nu)
+\]
+
+The convolution is implemented numerically using a two-dimensional discrete convolution,
+which approximates the continuous propagation of uncertainty.
+
+\section*{Multimodal Dynamics}
+
+The motion model consists of three possible movements: left, straight, and right, each
+with associated probabilities. The overall process noise distribution is constructed as
+a weighted sum of Gaussian distributions centered at the corresponding motion offsets.
+
+This results in a multimodal distribution that captures multiple possible future states,
+which is then used in the convolution step for time propagation.
+
+\section*{Results}
+
+\subsection*{Dynamics Only}
+
+Figure~\ref{fig:dynamics} shows the evolution of the prior distribution when
+only the dynamics model is applied. The distribution spreads and shifts over
+time according to the multimodal motion model.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.8\linewidth]{../figures/fig_dynamics_only.pdf}
+    \caption{Evolution of the state distribution under the dynamics model.}
+    \label{fig:dynamics}
+\end{figure}
+
+\pagebreak
+
+\subsection*{Full Estimation}
+
+Figure~\ref{fig:estimation} shows the full Bayesian filtering process, including
+both prediction and measurement updates.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_full_estimation.pdf}
+    \caption{State estimation with measurement updates over time.}
+    \label{fig:estimation}
+\end{figure}
+
+\subsection*{Observations}
+
+We notice that the prior is often multimodal, but the update typcially has
+a single peak. The prior is often multimodal because it represents the hypotheses 
+about the objects movement, where it can either move left, straight, or right.
+The probabilities are each of a similar magnitude, so the prior gives use
+3 distinct peaks. When a new measurement arrives, it creates a single 
+"spotlight" of evidence, which is centered around the new measurement.
+During the update, the evidence multiplies the prior, amplifying the one
+hypothesis it agrees with the most, suppressing the others. This is why
+the posterior distribution usually collapses into a single peak.
+
+\section*{Discussion}
+
+The results illustrate how uncertainty evolves under both the dynamics and
+measurement models. The multimodal motion model leads to a distribution
+that can split into multiple regions, reflecting different possible
+trajectories.
+
+Measurement updates help concentrate the distribution around the true state,
+reducing uncertainty over time. This demonstrates the balance between process
+uncertainty and measurement information in Bayesian estimation.
+
+The use of convolution provides a natural way to propagate uncertainty in
+continuous spaces, forming a foundation for more advanced estimation techniques.
+
+\end{document}

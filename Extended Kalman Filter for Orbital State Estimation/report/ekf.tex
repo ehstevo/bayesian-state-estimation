@@ -1,0 +1,186 @@
+% --------------------------------- Preamble -----------------------------------
+\documentclass[11pt, letterpaper, twocolumn]{article}
+
+\usepackage[T1]{fontenc} % use 8-bit fonts
+\usepackage[margin=0.75in, columnsep=0.2in, % 3.4 in columns
+    headsep=0.28in, footskip=0.42in]{geometry} % paper sizes
+\usepackage{amsmath, amsfonts, amssymb} % improved math
+\usepackage{bm} % bold math (must be after amsmath)
+\usepackage{upquote} % upright single quotes in verbatim
+\usepackage{pgfplots} % includes tikz, xcolor, graphicx
+\usepackage[colorlinks=true, allcolors=gray]{hyperref}
+
+\raggedbottom % do not force stretching text to fill the page
+\setlength{\emergencystretch}{\hsize} % avoid overfull lines
+\overfullrule=1mm % black band to show overfull lines
+\pdfsuppresswarningpagegroup=1 % remove pdf image warnings
+\frenchspacing % consistent spacing between words
+\newcommand{\ul}[1] % vectors
+    {{}\mkern1mu\underline{\mkern-1mu#1\mkern-1mu}\mkern1mu}
+\DeclareSymbolFont{euler}{U}{eur}{m}{n} % symbol font
+\DeclareMathSymbol{\PI}{\mathord}{euler}{25} % up pi
+\pgfplotsset{compat=newest} % use newest pgfplot version
+\newcommand{\EE}[2]{\ensuremath{{{#1}\!\times\!10^{#2}}}}
+% ------------------------------------------------------------------------------
+
+\title{Extended Kalman Filter for Orbital State Estimation}
+\author{}
+\date{} 
+
+\begin{document}
+\maketitle
+
+\section*{Description}
+
+This project implements an Extended Kalman Filter for estimating the state of a 
+satellite in 2D orbit about the Earth. The system dynamics are nonlinear due to
+gravitational acceleration, and the measurement model is nonlinear because the 
+sensor provides only the bearing angle to the satellite. The filter estimates
+position and velocity over an eight-hour orbit using recursive linearization
+of both the dynamics and measurement models.
+
+\subsection*{Problem Formulation}
+
+A satellite orbits the Earth. For simplicity, we will say that the gravitational acceleration 
+on the satellite is $G_E/r^2$, where we use the value $G_E=3.986\times10^{14} m^3/s^2$ and 
+$r$ is the total distance from earth to the satellite, $r=\sqrt{p_x^2+p_y^2}$. The earth is at 
+position (0,0) and at this origin is a sensor that only measures the bearing to the satellite. 
+Our state vector is the $x$ and $y$ position and velocity values:
+\[
+\ul{x} = \begin{bmatrix}
+    p_x & p_y & v_x & v_y
+\end{bmatrix}^T
+\]
+The acceleration of $G_E/r^2$ is just the magnitude. The vector of acceleration is the 
+magnitude multiplied by the negative unit vector of position: $p_x/r$ and $p_y/r$:
+\begin{figure}[h]
+    \includegraphics[width=\linewidth]{../figures/fig_force.pdf}
+\end{figure}
+
+So, the dynamics equations are:
+\begin{center}
+    $\dot{p_x} = v_x + \nu_{p_x}$
+    \\
+    $\dot{p_y} = v_y + \nu_{p_y}$
+    \\
+    $\dot{v_x} = a_x + \nu_{v_x}$
+    \\
+    $\dot{v_y} = a_y + \nu_{v_y}$
+\end{center}
+where $a_x$ and $a_y$ are defined as
+\[\begin{aligned}
+a_x &= -\frac{G_Ep_x}{(p_x^2+p_y^2)^{3/2}} \\
+a_y &= -\frac{G_Ep_y}{(p_x^2+p_y^2)^{3/2}}
+\end{aligned}
+\]
+and where the $\ul{\nu} \sim N(0,\mathbf{Q})$ values are noise. In the discrete domain, using
+forward Euler integration, the dynamics equations are:
+\begin{center}
+    $p_{x,k+1} = p_{x,k} + v_{x,k}T + \nu_{p_x}\sqrt{T}$
+    \\
+    $p_{y,k+1} = p_{y,k} + v_{y,k}T + \nu_{p_y}\sqrt{T}$
+    \\
+    $v_{x,k+1} = v_{x,k} + a_{x,k}T + \nu_{v_x}\sqrt{T}$
+    \\
+    $v_{y,k+1} = v_{y,k} + a_{y,k}T + \nu_{a_y}\sqrt{T}$
+\end{center}
+The measurement equation is:
+\begin{center}
+    $z = \operatorname{atan2}(p_x,p_y) + \eta$
+\end{center}
+where $\eta \sim N(0,R)$.
+
+\section*{Extended Kalman Filter}
+
+Because both the dynamics and measurement models are nonlinear, state estimation is performed
+with an Extended Kalman Filter. At each time step, the current estimate is propagated 
+through the nonlinear dynamics, and the covariance is propagated using the Jacobian of 
+the dynamics.
+
+The measurement update uses the nonlinear bearing model together with the Jacobian of the
+measurement function. The innovation is computed as the difference between the actual
+and predicted bearing measurements. Since bearing is an angle, the innovation must be
+wrapped to the interval $[-\pi,\pi)$ before applying the update.
+
+\subsection*{Dynamics Jacobian}
+
+The nonlinear dynamics are
+\[
+\phi(x) = \begin{bmatrix}
+    p_x + v_xT \\
+    p_y + v_yT \\
+    v_x + a_xT \\
+    v_y + a_yT
+\end{bmatrix}
+\]
+
+The Jacobian of the dynamics is
+\[ \bm{\varPhi} = \begin{bmatrix}
+    1 & 0 & T & 0 \\
+    0 & 1 & 0 & T \\
+    G_ET\frac{2p_x^2-p_y^2}{(p_x^2+p_y^2)^{5/2}} & \frac{3G_ETp_xp_y}{(p_x^2+p_y^2)^{5/2}} & 1 & 0 \\
+    \frac{3G_ETp_xp_y}{(p_x^2+p_y^2)^{5/2}} & G_ET\frac{2p_y^2-p_x^2}{(p_x^2+p_y^2)^{5/2}} & 0 & 1
+\end{bmatrix} 
+\]
+
+\subsection*{Measurement Jacobian}
+
+The measurement model is
+\[
+h(x) = \operatorname{atan2}(p_y,p_x)
+\]
+
+The Jacobian of the measurement model is
+\[ \bm{H} = \begin{bmatrix}
+    \frac{-p_y}{p_x^2+p_y^2} & \frac{p_x}{p_x^2+p_y^2} & 0 & 0
+\end{bmatrix} 
+\]
+
+\section*{Results}
+
+Figure~\ref{fig:path} shows the true orbital path together with the estimated path
+from the Extended Kalman Filter.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_path.pdf}
+    \caption{True and estimated orbital paths}
+    \label{fig:path}
+\end{figure}
+
+\pagebreak
+
+Figures~\ref{fig:poserr} and \ref{fig:velerr} show the position and velocity estimation
+errors over time along with their corresponding $3-\sigma$ bounds from the filter covariance.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_pos_errors.pdf}
+    \caption{Position estimation errors}
+    \label{fig:poserr}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_vel_errors.pdf}
+    \caption{Velocity estimation errors}
+    \label{fig:velerr}
+\end{figure}
+
+\section*{Discussion}
+
+The results show that the Extended Kalman Filter is able to track the satellite
+state despite nonlinear dynamics and a nonlinear bearing-only measurement model.
+The position and velocity errors remain bounded, and comparison with the $3-\sigma$
+bounds provides insight into the consistency of the covariance propagation.
+
+A key part of this implementation is the use of analytical Jacobians for both the
+dynamics and measurement models. Another important detail is angle wrapping in the
+innovation, since unwrapped bearing residuals can create large artificial errors 
+and destabilize the filter.
+
+This project highlights the central EKF idea: a nonlinear estimation problem can be
+handled by propagating the full nonlinear state while locally linearizing the system
+for covariance calculations.
+
+\end{document}

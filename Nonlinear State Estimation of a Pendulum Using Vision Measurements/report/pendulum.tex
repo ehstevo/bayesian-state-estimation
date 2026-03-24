@@ -1,0 +1,463 @@
+% --------------------------------- Preamble -----------------------------------
+\documentclass[11pt, letterpaper, twocolumn]{article}
+
+\usepackage[T1]{fontenc} % use 8-bit fonts
+\usepackage[margin=0.75in, columnsep=0.2in, % 3.4 in columns
+    headsep=0.28in, footskip=0.42in]{geometry} % paper sizes
+\usepackage{amsmath, amsfonts, amssymb} % improved math
+\usepackage{bm} % bold math (must be after amsmath)
+\usepackage{upquote} % upright single quotes in verbatim
+\usepackage{pgfplots} % includes tikz, xcolor, graphicx
+\usepackage[colorlinks=true, allcolors=gray]{hyperref}
+% \usepackage{float}
+
+\raggedbottom % do not force stretching text to fill the page
+\setlength{\emergencystretch}{\hsize} % avoid overfull lines
+\overfullrule=1mm % black band to show overfull lines
+\pdfsuppresswarningpagegroup=1 % remove pdf image warnings
+\frenchspacing % consistent spacing between words
+\newcommand{\ul}[1] % vectors
+    {{}\mkern1mu\underline{\mkern-1mu#1\mkern-1mu}\mkern1mu}
+\DeclareSymbolFont{euler}{U}{eur}{m}{n} % symbol font
+\DeclareMathSymbol{\PI}{\mathord}{euler}{25} % up pi
+\pgfplotsset{compat=newest} % use newest pgfplot version
+\newcommand{\EE}[2]{\ensuremath{{{#1}\!\times\!10^{#2}}}}
+% ------------------------------------------------------------------------------
+
+\title{Nonlinear State Estimation of a Pendulum Using Vision Measurements \\ 
+       \Large \textit{A comparative study of EKF, UKF, and Particle Filtering}}
+\author{}
+\date{} 
+
+\begin{document}
+\maketitle
+
+\section*{Description}
+
+This project addresses the problem of estimating the full state of a pendulum system 
+using nonlinear dynamics and camera-based measurements. The system consists of a ball 
+attached to a string, observed by a monocular camera that provides only image-space measurements.
+
+The estimation problem is challenging due to:
+\begin{itemize}
+    \item nonlinear dynamics with multiple coupled forces
+    \item nonlinear measurement model arising from perspective projection
+    \item partial observability of the system (unknown hook position)
+\end{itemize}
+
+To study this problem, three Bayesian estimation methods are implemented and compared:
+\begin{itemize}
+    \item Extended Kalman Filter (EKF)
+    \item Sigma-point Kalman Filter (UKF)
+    \item Particle Filter (PF)
+\end{itemize}
+
+This project explores how different estimation strategies perform on the same nonlinear system,
+highlighting trade-offs between accuracy, robustness, and computational complexity.
+
+\section*{System Model}
+
+The state vector and its dynamics are defined as
+\[\begin{aligned}
+\ul{x} &= \begin{bmatrix}
+    \ul{p} & \ul{v} & \ul{h}
+    \end{bmatrix}^{\top} \\
+\dot{\ul{x}} &= \begin{bmatrix}
+    \mathbf{0}_3 & \mathbf{I}_3 & \mathbf{0}_3 \\
+    \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \\
+    \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3
+    \end{bmatrix}\ul{x} + 
+    \begin{bmatrix}
+        \ul{0}_3 \\
+        \ul{a} \\
+        \ul{0}_3
+    \end{bmatrix}
+\end{aligned}
+\]
+where $\ul{p}$ is the position of the ball, $\ul{v}$ is its velocity, and $\ul{h}$ 
+is the position of the hook.
+
+The dynamics include gravitational acceleration, string tension effects, and aerodynamic drag:
+\[
+\ul{a} = \ul{a}_g + \ul{a}_c + \ul{a}_d + \ul{g}
+\]
+Where we discuss each acceleration component below.
+
+\subsection*{Counter-gravitational Acceleration}
+We are assuming a non-elastic string, so any force gravity puts on the ball
+will be countered by the string. The position of the ball, $\ul{p}$, relative
+to the hook, $\ul{h}$, is
+\[
+\ul{s} = \ul{p} - \ul{h}
+\]
+Its unit vector is $\ul{u}_s = \ul{s}/s$, where $s = ||\ul{s}||$. So, the 
+tension acceleration (counter-gravitational) on the string due to gravity is
+\[
+\ul{a}_g = -\ul{u}_s(\ul{u}_s \cdot \ul{g})
+\]
+
+\subsection*{Centripital Acceleration}
+Another tension on the string is due to the velocity, $\ul{v}$, of the ball.
+This is the centripetal acceleration.
+\[
+\ul{a}_c = -\ul{u}_s\frac{v^2}{s}
+\]
+where $v = ||\ul{v}||$.
+
+\subsection*{Drag Acceleration}
+As the ball moves through the air, there is a drag which opposes its motion.
+This acceleration is defined in the opposite direction to the velocity and its
+magnitude is the velocity squared scaled by the drag coefficient, $k_d$
+\[
+\ul{a}_d = -\ul{v}(k_dv)
+\]
+
+\subsection*{Discrete Space Dynamics}
+In discrete space, the dynamics equations are
+\[\begin{aligned}
+\ul{x}_{k+1} &= \ul{\phi}(\ul{x}_k) \\
+\ul{\phi}(\ul{x}) &= \mathbf{I}_9\ul{x}+T \begin{bmatrix}
+    \mathbf{0}_3 & \mathbf{I}_3 & \mathbf{0}_3 \\
+    \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \\
+    \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3
+    \end{bmatrix}\ul{x}+
+    \begin{bmatrix}
+        \frac{1}{2}T^2\ul{a} \\
+        T\ul{a} \\
+        \ul{0}_3
+    \end{bmatrix}
+\end{aligned}
+\]
+
+\subsection*{Dynamics Jacobians}
+The Extended Kalman Filter requires the use of Jacobians to approxiamte how 
+uncertainty in the state propagates through nonlinear dynamics by linearizing 
+these dyamics. Below we will derive these Jacobians.
+
+The Jacobian of the counter-gravitational acceleration is composed of
+\[\begin{aligned}
+    \frac{\partial\ul{a}_g}{\partial p_x} &= -2\frac{s_x}{s^2}\ul{a}_g-\frac{1}{s^2}
+    \begin{bmatrix}
+        2g_xs_x+g_ys_y+g_zs_z \\
+        g_xs_y \\
+        g_xs_z
+    \end{bmatrix} \\
+    \frac{\partial\ul{a}_g}{\partial p_y} &= -2\frac{s_y}{s^2}\ul{a}_g-\frac{1}{s^2}
+    \begin{bmatrix}
+        g_ys_x \\
+        g_xs_x+2g_ys_y+g_zs_z \\
+        g_ys_z
+    \end{bmatrix} \\
+    \frac{\partial\ul{a}_g}{\partial p_z} &= -2\frac{s_z}{s^2}\ul{a}_g-\frac{1}{s^2}
+    \begin{bmatrix}
+        g_zs_x \\
+        g_zs_y \\
+        g_xs_x+g_ys_y+2g_zs_z
+    \end{bmatrix}
+\end{aligned}
+\]
+The Jacobian of the centripetal acceleration is composed of
+\[\begin{aligned}
+    \frac{\partial\ul{a}_c}{\partial p_x} &= -\frac{v^2}{s^2}\left(
+        \begin{bmatrix}
+            1 \\
+            0 \\
+            0
+        \end{bmatrix}-2\frac{s_x}{s^2}\ul{s}
+    \right) &\quad
+    \frac{\partial\ul{a}_c}{\partial v_x} &= -2\frac{\ul{s}}{s^2}v_x \\
+    \frac{\partial\ul{a}_c}{\partial p_y} &= -\frac{v^2}{s^2}\left(
+        \begin{bmatrix}
+            0 \\
+            1 \\
+            0
+        \end{bmatrix}-2\frac{s_y}{s^2}\ul{s}
+    \right) &\quad
+    \frac{\partial\ul{a}_c}{\partial v_y} &= -2\frac{\ul{s}}{s^2}v_y \\
+    \frac{\partial\ul{a}_c}{\partial p_z} &= -\frac{v^2}{s^2}\left(
+        \begin{bmatrix}
+            0 \\
+            0 \\
+            1
+        \end{bmatrix}-2\frac{s_z}{s^2}\ul{s}
+    \right) &\quad
+    \frac{\partial\ul{a}_c}{\partial v_z} &= -2\frac{\ul{s}}{s^2}v_z
+    \end{aligned}
+\]
+The Jacobian of the drag acceleration is composed of
+\[
+\frac{\partial\ul{a}_d}{\partial\ul{v}} = -\frac{k_d}{v}(v^2\mathbf{I}_3+\ul{v}\ul{v}^{\top})
+\]
+Notice that these Jacobians have only been with respect to the position
+and velocity of the ball. The Jacobians with respect to the hook position
+are simply the negative of the Jacobians with respect to the ball position.
+
+Putting all these together, the $\Phi$ matrix is
+\[
+\Phi = \mathbf{I}_9+T\begin{bmatrix}
+    \mathbf{0}_3 & \mathbf{I}_3 & \mathbf{0}_3 \\
+    \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \\
+    \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3
+    \end{bmatrix}+\begin{bmatrix}
+        \frac{1}{2}T^2\frac{\partial\ul{a}}{\partial\ul{x}} \\
+        T\frac{\partial\ul{a}}{\partial\ul{x}} \\
+        \mathbf{0}_{3\times9}
+    \end{bmatrix}
+\]
+The $\Phi$ matrix is the discretized dynamics Jacobian. The ${\partial\ul{a}/}{\partial\ul{x}}$
+is a 3$\times$9 matrix. The first three columns are with respect to the ball position,
+the next three with respect to the ball velocity, and the last three with respect
+to the hook position. Put columns vectors like ${\partial\ul{a}_g}/{\partial p_x}$
+into the first column, ${\partial\ul{a}_c}/{\partial v_x}$ into the fourth column,
+and so on. Vectors like ${\partial\ul{a}_g}/{\partial p_x}$ and
+${\partial\ul{a}_c}/{\partial p_x}$ would add.
+
+\section*{Measurement Model}
+The camera measurement vector is
+\[
+\ul{z} = \begin{bmatrix}
+        r_p & u & v
+    \end{bmatrix}^{\top}
+\]
+
+Measurements are obtained from a monocular camera. The sensor provides:
+\begin{itemize}
+    \item pixel coordinates $(u, v)$
+    \item apparent radius $r_p$
+\end{itemize}
+
+These measurements are related to the 3D position through a nonlinear projection model:
+\[ \begin{aligned}
+r_p &= \kappa \frac{r_b}{p_z} \\
+u &= c_x + \kappa \frac{p_x}{p_z} \\
+v &= c_y + \kappa \frac{p_y}{p_z}
+\end{aligned}
+\]
+
+Where $r_b$ is the true radius of the ball, $\kappa$ is a scaling factor, $c_x$ 
+is the horizontal center of the camera image in pixels, and $c_y$ is the vertical 
+center of the image in pixels. The measurement model introduces strong nonlinearities 
+due to division by depth ($p_z$).
+
+\subsection*{Measurement Model Jacobians}
+Like the dynamics, the measurement model requires the use of Jacobians in
+predicting how uncertainty in the state affects the predicted measurement.
+Below we will derive the measurement Jacobian.
+
+The measurement Jacobian is composed of
+\[
+\frac{\partial\ul{h}}{\partial\ul{p}} = \begin{bmatrix}
+    0 & 0 & -\kappa\frac{r_b}{p_z^2} \\
+    \frac{\kappa}{p_z} & 0 & -\kappa\frac{p_x}{p_z^2} \\
+    0 & \frac{\kappa}{p_z} & -\kappa\frac{p_y}{p_z^2}
+\end{bmatrix}
+\]
+
+\section*{Estimation Methods}
+
+Three Bayesian estimation approaches are applied to the same system.
+
+\subsection*{Extended Kalman Filter (EKF)}
+
+The EKF linearizes the dynamics and measurement models using analytical Jacobians. This
+provides computational efficiency but introduces approximation error in highly nonlinear regions.
+
+\subsection*{Sigma-Point Kalman Filter (UKF)}
+
+The sigma-point Kalman filter approximates nonlinear transformations using deterministically
+selected sigma points. This avoids explicit linearization and more accurately captures uncertainty propagation.
+
+\subsection*{Particle Filter (PF)}
+
+The particle filter represents the state distribution using weighted samples. This allows it to 
+capture non-Gaussian and multimodal distributions but requires significantly more computation.
+
+\section*{Initialization and Implementation}
+
+Initial position estimates are obtained by inverting the measurement model. Velocity 
+is estimated using finite differences between early measurements.
+
+The hook position is initialized based on prior geometric assumptions. Covariance matrices
+and noise parameters are tuned empirically to achieve stable and accurate estimation.
+
+Each filter is implemented using the same system and measurement models to enable direct comparison.
+
+\section*{Results}
+
+The performance of each estimator is evaluated using trajectory reconstruction and measurement consistency.
+
+\subsection*{Trajectories}
+
+Figures~\ref{fig:ekftraj}--\ref{fig:pftraj} show the estimated trajectories for each method.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_path_ekf.pdf}
+    \caption{Estimated trajectory for EKF}
+    \label{fig:ekftraj}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_path_ukf.pdf}
+    \caption{Estimated trajectory for UKF}
+    \label{fig:ukftraj}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_path_particle_filter.pdf}
+    \caption{Estimated trajectory for PF}
+    \label{fig:pftraj}
+\end{figure}
+
+\clearpage
+
+Figures~\ref{fig:ekfbpos}--\ref{fig:pfbpos} show the estimated ball positions for each method.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.72\linewidth]{../figures/fig_ball_position_ekf.pdf}
+    \caption{Estimated ball position for EKF}
+    \label{fig:ekfbpos}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.72\linewidth]{../figures/fig_ball_position_ukf.pdf}
+    \caption{Estimated ball position for UKF}
+    \label{fig:ukfbpos}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.72\linewidth]{../figures/fig_ball_position_particle_filter.pdf}
+    \caption{Estimated ball position for PF}
+    \label{fig:pfbpos}
+\end{figure}
+
+\pagebreak
+
+Figures~\ref{fig:ekfbvel}--\ref{fig:pfbvel} show the estimated ball velocities for each method.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.72\linewidth]{../figures/fig_ball_velocity_ekf.pdf}
+    \caption{Estimated ball velocity for EKF}
+    \label{fig:ekfbvel}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.72\linewidth]{../figures/fig_ball_velocity_ukf.pdf}
+    \caption{Estimated ball velocity for UKF}
+    \label{fig:ukfbvel}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.72\linewidth]{../figures/fig_ball_velocity_particle_filter.pdf}
+    \caption{Estimated ball position for PF}
+    \label{fig:pfbvel}
+\end{figure}
+
+\clearpage
+
+Figures~\ref{fig:ekfhpos}--\ref{fig:pfhpos} show the estimated hook positions for each method.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.72\linewidth]{../figures/fig_hook_position_ekf.pdf}
+    \caption{Estimated hook position for EKF}
+    \label{fig:ekfhpos}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.72\linewidth]{../figures/fig_hook_position_ukf.pdf}
+    \caption{Estimated hook position for UKF}
+    \label{fig:ukfhpos}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.72\linewidth]{../figures/fig_hook_position_particle_filter.pdf}
+    \caption{Estimated hook position for PF}
+    \label{fig:pfhpos}
+\end{figure}
+
+\pagebreak
+
+\subsection*{IOU}
+
+Performance is also evaluated using the IOU metric between predicted and observed 
+image measurements. This function calculates the intersect-over-union (IOU) 
+of the expected pixel cirlce and the measured pixel circle. If there is  a perfect 
+overlap, the  IOU value will be 1. Anything else will return less than 1 (minimum 0).
+
+Table~\ref{fig:iou} shows the average IOU over the duration of the simulation
+for each filtering method.
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{|c|c|}
+        \hline
+        Method & IOU \\ \hline
+        EKF & 0.99733 \\ \hline
+        UKF & 0.99715 \\ \hline
+        PF & 0.97059 \\ \hline
+    \end{tabular}
+\caption{Intersection-over-union (IOU) values}
+\label{fig:iou}
+\end{table}
+
+\section*{Discussion}
+
+The results highlight clear differences in performance across the three estimation methods.
+
+The EKF achieved the highest IOU, indicating that for this problem the linearization-based 
+approach was sufficiently accurate. This suggests that, despite the nonlinear measurement model,
+the system operates in a manner where local linear approximations remain valid over each update step.
+
+The UKF performed very similarly to the EKF, with only a slightly lower IOU. This indicates
+that the additional complexity of sigma-point propagation did not provide a significant advantage
+in this specific scenario. However, the UKF still offers improved robustness to stronger nonlinearities
+and does not require analytical Jacobians, which makes it a more flexible approach for more complex systems.
+
+The particle filter produced a lower IOU compared to both Kalman filter approaches, though its 
+performance remained strong overall. Achieving this level of accuracy required approximately 500 
+particles, highlighting the trade-off between computational cost and estimation quality. While the 
+particle filter is capable of handling highly nonlinear and non-Gaussian systems, its increased 
+computational burden makes it less efficient for problems where Gaussian assumptions are reasonable.
+
+An important observation is that all three filters were able to infer the full 9-dimensional state 
+from indirect camera measurements. This demonstrates that the combination of system dynamics and 
+measurement structure provides sufficient information to reconstruct the underlying state, even when 
+certain variables (such as depth and hook position) are not directly measured.
+
+Overall, the results suggest that for this problem, the system is sufficiently well-behaved that 
+Gaussian-based filters (EKF and UKF) are both accurate and efficient, while the particle filter 
+provides additional robustness at a higher computational cost.
+
+\section*{Conclusion}
+
+This project investigated nonlinear state estimation for a pendulum system using vision-based measurements. 
+Three estimation methods were implemented and compared: an Extended Kalman Filter, a Sigma-Point Kalman 
+Filter (UKF), and a Particle Filter.
+
+The results show that all three methods are capable of accurately reconstructing the system state, 
+despite the nonlinear dynamics and indirect measurements. The EKF achieved the highest performance in 
+terms of IOU, with the UKF performing nearly as well. The particle filter also produced accurate estimates 
+but required significantly greater computational effort to achieve comparable performance.
+
+These results highlight an important principle in state estimation: the choice of estimator should be guided 
+by the level of system nonlinearity and the required computational efficiency. For systems where nonlinearities 
+are moderate and Gaussian assumptions are reasonable, Kalman filter-based methods provide an effective and 
+efficient solution. More general methods such as particle filters become advantageous when these assumptions break down.
+
+This project demonstrates the full estimation pipeline for a nonlinear, partially observed system, 
+including modeling, measurement inversion, filter design, and performance evaluation. It also illustrates 
+how different estimation approaches behave when applied to the same problem, providing insight into their 
+relative strengths and limitations.
+
+\end{document}

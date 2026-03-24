@@ -1,0 +1,305 @@
+% --------------------------------- Preamble -----------------------------------
+\documentclass[11pt, letterpaper, twocolumn]{article}
+
+\usepackage[T1]{fontenc} % use 8-bit fonts
+\usepackage[margin=0.75in, columnsep=0.2in, % 3.4 in columns
+    headsep=0.28in, footskip=0.42in]{geometry} % paper sizes
+\usepackage{amsmath, amsfonts, amssymb} % improved math
+\usepackage{bm} % bold math (must be after amsmath)
+\usepackage{upquote} % upright single quotes in verbatim
+\usepackage{pgfplots} % includes tikz, xcolor, graphicx
+\usepackage[colorlinks=true, allcolors=gray]{hyperref}
+
+\raggedbottom % do not force stretching text to fill the page
+\setlength{\emergencystretch}{\hsize} % avoid overfull lines
+\overfullrule=1mm % black band to show overfull lines
+\pdfsuppresswarningpagegroup=1 % remove pdf image warnings
+\frenchspacing % consistent spacing between words
+\newcommand{\ul}[1] % vectors
+    {{}\mkern1mu\underline{\mkern-1mu#1\mkern-1mu}\mkern1mu}
+\DeclareSymbolFont{euler}{U}{eur}{m}{n} % symbol font
+\DeclareMathSymbol{\PI}{\mathord}{euler}{25} % up pi
+\pgfplotsset{compat=newest} % use newest pgfplot version
+\newcommand{\EE}[2]{\ensuremath{{{#1}\!\times\!10^{#2}}}}
+% ------------------------------------------------------------------------------
+
+\title{Linear Kalman Filter for 2D Motion Tracking}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Description}
+
+This project implements a linear Kalman Filter for estimating two-dimensional
+position and velocity. The system dynamics are linear, and the measurement model
+consists of direct position measurements observed in a rotated sensor frame.
+The project includes both simulation of truth and measurements and recursive 
+state estimation using a discrete-time Kalman Filter.
+
+\subsection*{System Model}
+
+The system equations are:
+\begin{equation*}
+    \dot{\ul{x}} = \textbf{F}\ul{x} + \textbf{B}\ul{u} + \ul{\nu}, \quad \ul{\nu} \sim \mathcal{N}(0,\textbf{Q})
+\end{equation*}
+\begin{equation*}
+    \ul{z} = \textbf{H}\ul{x} + \ul{\eta}, \quad \ul{\eta} \sim \mathcal{N}(0,\textbf{R})
+\end{equation*}
+\\
+where
+\begin{align*}
+    F &= 
+    \begin{bmatrix} 
+        0 & 0 & 1 & 0 \\ 
+        0 & 0 & 0 & 1 \\
+        0 & 0 & 0 & 0 \\
+        0 & 0 & 0 & 0 
+    \end{bmatrix}
+    \quad
+    B = 
+    \begin{bmatrix} 
+        0 & 0 \\ 
+        0 & 0 \\
+        1 & 0 \\ 
+        0 & 1 
+    \end{bmatrix}
+    \\
+    \\
+    Q &= 
+    \begin{bmatrix} 
+        0.01 & 0 & 0 & 0 \\ 
+        0 & 0.01 & 0 & 0 \\
+        0 & 0 & 0.01 & 0 \\
+        0 & 0 & 0 & 0.01 
+    \end{bmatrix}
+    \quad
+    \ul{x} = 
+    \begin{bmatrix} 
+        p_x \\ 
+        p_y \\ 
+        v_x \\ 
+        v_y 
+    \end{bmatrix}
+    \\
+    \\
+    H &= 
+    \begin{bmatrix} 
+        \cos\theta & \sin\theta & 0 & 0 \\
+        -\sin\theta & \cos\theta & 0 & 0 
+    \end{bmatrix}
+    R = 
+    \begin{bmatrix} 
+        1 & 0 \\ 
+        0 & 0.1 
+    \end{bmatrix}
+    \ul{u} = 
+    \begin{bmatrix} 
+        a_x \\ 
+        a_y 
+    \end{bmatrix}
+\end{align*}
+and where $(p_x, p_y)$ is the position, $(v_x, v_y)$ is the velocity,
+$(a_x, a_y)$ is the input acceleration, and $\theta$ is some arbitrarily
+chosen angle. There is a sensor at the origin of the coordinate frame
+directly measuring the position states. However, it is rotated by the 
+angle $\theta$. The \textbf{H} matrix represents this rotation from the
+state's coordinate frame to the sensor's coordinate frame: \\
+\includegraphics[width=\linewidth]{../figures/fig_frame.png}
+
+\subsection*{Discretization}
+
+The continuous-time system is converted to a discrete-time model with sampling
+period $T = 0.1$ s. The discrete dynamics are written as 
+\[\begin{aligned}
+\ul{x}_{k+1} &= \Phi\ul{x}_k + \mathbf{B}_d\ul{u}_k + \ul{\nu}_k, &\quad \ul{\nu} &\sim \mathcal{N}(0,\mathbf{Q}_d) \\
+\ul{z}_k &= \mathbf{H}\ul{x}_k + \mathbf{D}\ul{u}_k + \ul{\eta}_k, &\quad \ul{\eta} &\sim \mathcal{N}(0,\mathbf{R}) 
+\end{aligned}
+\]
+
+The matrices $\Phi$, $\mathbf{B}_d$, and $\mathbf{Q}_d$ are computed using 
+the van Loan method. This avoids relying on the first-order approximations
+and provides a more accurate discretization of both the dynamics and 
+process noise.
+
+\section*{Kalman Filter}
+
+State estimation is performed using a standard discrete-time Kalman Filter.
+
+\textbf{Update:}
+\[\begin{aligned}
+\mathbf{S} &= \mathbf{H}\mathbf{P}_k\mathbf{H}^{\top} + \mathbf{R} \\
+\mathbf{K} &= \hat{\mathbf{P}}\mathbf{H}^{\top}\mathbf{S}^{-1} \\
+\ul{r} &= \ul{z}_k - \mathbf{H}\hat{\ul{x}}_k - \mathbf{D}\ul{u}_k \\
+\hat{\ul{x}}_k &= \hat{\ul{x}}_k + \mathbf{K}\ul{r} \\
+\hat{\mathbf{P}}_k &= \hat{\mathbf{P}}_k - \mathbf{K}\mathbf{H}\hat{\mathbf{P}}_k
+\end{aligned}
+\]
+
+\textbf{Propagate:}
+\[\begin{aligned}
+\hat{\ul{x}}_{k+1} &= \Phi\hat{\ul{x}}_k + \mathbf{B}_d\ul{u}_k \\
+\hat{\mathbf{P}}_{k+1} &= \Phi\hat{\mathbf{P}}_k\Phi^{\top} + \mathbf{Q}_d
+\end{aligned}
+\]
+
+The initial state estimate is taken from the first truth sample, and the 
+initial covariance is chosen as the identity matrix.
+
+\section*{Simulation setup}
+
+Truth data and measurements are generated over a 100 s simulation with sampling
+period 0.1 s. The acceleration inputs are defined as
+\[
+a_x = -sin\left(\frac{2\pi}{5}t\right) \quad a_y = -cos\left(\frac{2\pi}{10}t\right)
+\]
+
+The initial state is
+\[
+\begin{bmatrix}
+    0 & 0 & 0.8 & 0
+\end{bmatrix}^{\top}
+\]
+
+Three cases are studied in the analysis:
+\begin{enumerate}
+    \item Rotated measurement frame with $\theta = \pi/4$
+    \item Unrotated measurement frame with $\theta = 0$
+    \item Rotated measurement frame with isotropic measurement covariance $\mathbf{R} = \mathrm{diag}[1.0, 1.0]$
+\end{enumerate}
+
+\section*{Results}
+
+Figure~\ref{fig:path} shows the true and estimated two-dimensional paths. 
+The Kalman Filter tracks the state closely over the full simulation. \\
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_paths.pdf}
+    \caption{True and estimated 2D trajectories}
+    \label{fig:path}
+\end{figure}
+
+\newpage
+
+Figures~\ref{fig:pxerr}--\ref{fig:vyerr} shows the state estimation errors
+together with the expected $3-\sigma$ bounds from the filter covariance
+and the empirical $3-\sigma$ bounds computed from the full error history. \\
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_pxerr.pdf}
+    \caption{x-position error}
+    \label{fig:pxerr}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_pyerr.pdf}
+    \caption{y-position error}
+    \label{fig:pyerr}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_vxerr.pdf}
+    \caption{x-velocity error}
+    \label{fig:vxerr}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/fig_vyerr.pdf}
+    \caption{y-velocity error}
+    \label{fig:vyerr}
+\end{figure}
+
+\newpage
+
+\subsection*{Analysis}
+
+\begin{enumerate}
+
+\item The final state covariance matrix of the estimation with
+rotated measurement frame with $\theta = \pi/4$
+
+    \begin{center}
+        \begin{tabular}{cccc}
+            \hline
+            0.049 & 0.033 & 0.02 & 0.011 \\
+            0.033 & 0.049 & 0.011 & 0.02 \\
+            0.02 & 0.011 & 0.022 & 0.005 \\
+            0.011 & 0.02 & 0.005 & 0.022 \\
+            \hline
+        \end{tabular}
+    \end{center}
+
+\item The final state covariance matrix after setting $\theta$ to 0. 
+
+    \begin{center}
+        \begin{tabular}{cccc}
+            \hline
+            0.082 & 0.0 & 0.03 & 0.0 \\
+            0.0 & 0.016 & 0.0 & 0.009 \\
+            0.03 & 0.0 & 0.027 & 0.0 \\
+            0.0 & 0.009 & 0.0 & 0.017 \\
+            \hline
+        \end{tabular}
+    \end{center}
+    There are 8 zeros in the new covariance matrix, as opposed to the
+    matrix representing a $\pi/4$ radian rotation of the sensor. The
+    presence of zeros in the aligned matrix is due to the fact that 
+    x-dimension and y-dimension become completely independent problems.
+    When there is a rotation of the sensor, we must combine $p_x$ and
+    $p_y$ in the H matrix to rotate our estimate into the sensor frame.
+    This means that each measurement informs the filter about both
+    $p_x$ and $p_y$. When there is no rotation, we essentially get 
+    one measurement for $p_x$ and one for $p_y$. When there is a rotation,
+    the errors in the x and y states are \textit{coupled}, meaning the
+    errors in the x and y states are correlated. This is why there are
+    no zeros in our original matrix, and zeros appear where x and y
+    dimensions cross in the aligned matrix.
+
+\item The final state covariance matrix after setting $\theta$ back 
+    to $\pi/4$ and setting $\bm{R}$ to \texttt{diag[1.0, 1.0]}. 
+
+    \begin{center}
+        \begin{tabular}{cccc}
+            \hline
+            0.082 & 0.0 & 0.03 & 0.0 \\
+            0.0 & 0.082 & 0.0 & 0.03 \\
+            0.03 & 0.0 & 0.027 & 0.0 \\
+            0.0 & 0.03 & 0.0 & 0.027 \\
+            \hline
+        \end{tabular}
+    \end{center}
+    There are once again 8 zeros in the covariance matrix, but this time
+    appearing for a less intuitive reason (which is actually the dominant
+    reason). The zeros reappeared because we restored perfect symmetry to 
+    the problem. The rotation of the sensor provides the mechanism to
+    couple the x and y dimensions, but it is the \textit{asymmetry} in the
+    system that actually creates the correlation. When the measurement noise 
+    is asymmetric, the filter trusts one sensor direction more than another,
+    forcing the x and y estimation errors to become correlated. By making the
+    noise symmetric, any preference in direction is removed, so the filter
+    treats both dimensions identically, causing the cross-covariance terms
+    between them to resolve to zero.
+
+\end{enumerate}
+
+\section*{Discussion}
+
+The results show that the Kalman Filter provides accurate state estimates while
+maintaining a covariance matrix that is consistent with the observed estimation
+errors. The comparison between the predicted and empirical $3-\sigma$ bounds 
+provides a useful check on whether the filter uncertainty is well calibrated.
+
+The covariance analysis also illustrates how the measurement model affects state
+coupling. When the measurement frame is rotated, the position states are mixed
+in the sensor model, which produces nonzero off-diagonal covariance terms. When
+the measurement frame is aligned with the state coordinates, additional structure
+appears in the covariance matrix. Changing the measurement covariance to an 
+isotropic form further alters this structure by making the measurement uncertainty
+symmetric in the rotated frame.
+\end{document}

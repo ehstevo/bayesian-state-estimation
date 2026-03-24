@@ -1,0 +1,111 @@
+% --------------------------------- Preamble -----------------------------------
+\documentclass[11pt, letterpaper, twocolumn]{article}
+
+\usepackage[T1]{fontenc} % use 8-bit fonts
+\usepackage[margin=0.75in, columnsep=0.2in, % 3.4 in columns
+    headsep=0.28in, footskip=0.42in]{geometry} % paper sizes
+\usepackage{amsmath, amsfonts, amssymb} % improved math
+\usepackage{bm} % bold math (must be after amsmath)
+\usepackage{upquote} % upright single quotes in verbatim
+\usepackage{pgfplots} % includes tikz, xcolor, graphicx
+\usepackage[colorlinks=true, allcolors=gray]{hyperref}
+\usepackage{float}
+
+\raggedbottom % do not force stretching text to fill the page
+\setlength{\emergencystretch}{\hsize} % avoid overfull lines
+\overfullrule=1mm % black band to show overfull lines
+\pdfsuppresswarningpagegroup=1 % remove pdf image warnings
+\frenchspacing % consistent spacing between words
+\newcommand{\ul}[1] % vectors
+    {{}\mkern1mu\underline{\mkern-1mu#1\mkern-1mu}\mkern1mu}
+\DeclareSymbolFont{euler}{U}{eur}{m}{n} % symbol font
+\DeclareMathSymbol{\PI}{\mathord}{euler}{25} % up pi
+\pgfplotsset{compat=newest} % use newest pgfplot version
+\newcommand{\EE}[2]{\ensuremath{{{#1}\!\times\!10^{#2}}}}
+% ------------------------------------------------------------------------------
+
+\title{RLC Circuit Simulation and State-Space Modeling}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Description}
+This project demonstrates the simulation of a continuous-time dynamical system
+using Python. An RLC circuit is modeled using state-space equations and 
+numerically integrated using a forward Euler method. This type of simulation
+framework forms the basis for more advanced bayesian estimation techniques
+such as Kalman Filtering.
+
+We will see how we simulate the following RLC circuit: \\
+\includegraphics[width=\linewidth]{../figures/fig_circuit.pdf}
+
+\subsection*{System Model}
+The system is modeled as an RLC circuit with the inductor current and capacitor
+voltage chosen as the state variables:
+\[
+    \dot{x} = \begin{bmatrix}
+        \dot{i}_L \\
+        \dot{v}_C
+    \end{bmatrix}  
+\]
+Using standard circuit relationship, the dynamics can be written as
+\[
+\dot{i}_L = \frac{1}{L}(v_s-v_C), \quad \dot{v_C} = \frac{1}{C}(i_L-\frac{v_C}{R})
+\]
+These equations describe the time evolution of the syste in terms of the 
+current state and input voltage. For convenience, the system is expressed
+in compact form as
+\[
+\dot{x} = f(x,u)
+\]
+where $u = v_s$ represents the input to the system.
+
+\subsection*{Numerical Simulation}
+The continuous-time dynamics are simulated using a forward Euler discretization
+with a fixed sampling period $T$. The state is propagated according to
+\[
+x_{k+1} = x_k + Tf(x_k,u_k)
+\]
+The simulation is run over a finite time horizon, with the input voltage
+periodically toggled to excite the system dynamics. At each time step,
+the current state is stored to enable analysis and visualization of
+the system behavior over time.
+
+\section*{Results}
+The time histories of the inductor current and capacitor voltage are shown
+in the figure below. The system exhibits oscillatory behavior due to energy
+exchange between the inductor and capacitor, with damping introduced by 
+the resistor. \\
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/states.pdf}
+    \caption{Inductor current and capacitor voltage over time}
+\end{figure}
+
+\pagebreak
+
+Next, the resistor and capacitor currents are consistent with the underlying
+circuit relationships. \\
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/current.pdf}
+    \caption{Resistor and capacitor currents over time}
+\end{figure}
+
+Lastly, the equivalent impedance of the circuit. The variation reflects the 
+time-dependent relationship between voltage and current in the system. \\
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{../figures/impedance.pdf}
+    \caption{Equivalent impedance over time}
+\end{figure}
+
+\section*{Conclusion}
+This project demonstrates a simple framework for simulating continuous-time
+dynamical systems using a state-space representation and forward Euler
+integration. The same structure can be extended to more complex systems and
+forms the basis for later state estimatiom methods.
+
+\end{document}
