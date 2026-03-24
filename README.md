@@ -24,6 +24,30 @@ The later projects emphasize full system modeling and comparative analysis betwe
 
 ---
 
+## Visualizations
+
+### Particle Filter Localization
+
+<p align="center">
+  <img src="assets/pf_ani.gif" width="750">
+</p>
+
+Localization of a mobile robot using a particle filter.  
+Each gray circle represents a particle hypothesis of the robot state, which evolves over time through propagation, weighting, and resampling. The pink line represents the lidar range-to-wall measurement of the robot. The animation illustrates how the particle distribution converges toward the true state as measurements are incorporated.
+
+---
+
+### Vision-Based Nonlinear State Estimation
+
+<p align="center">
+  <img src="assets/pendulum_ani.gif" width="600">
+</p>
+
+Reconstruction of a nonlinear pendulum system from camera measurements alone.  
+The animation shows the estimated pendulum configuration and recent state history inferred from image-space observations, without access to ground-truth state data. Estimation performance is evaluated through measurement consistency metrics, including intersection-over-union (IOU) of predicted and observed projections.
+
+---
+
 ## Project Structure
 
 ### Foundations
