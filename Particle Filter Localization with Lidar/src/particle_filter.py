@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import util
+from tqdm import tqdm
 
 # Read in truth, inputs, and measurement data
 M = np.fromfile('data/xyaswr.bin').reshape((-1, 6)).T
@@ -26,7 +27,7 @@ sigma_y = 100               # initial uncertainty of y position (cm)
 sigma_a = np.pi             # initial uncertainty of heading angle (rad)
 sigma_s = 32                # noise in forward speed (cm/s)
 sigma_w = 0.55              # noise in rotation rate (rad/s)
-sigma_r = 10                # lidar measurement noise (cm)
+sigma_r = 15                # lidar measurement noise (cm)
 
 P0 = np.diag([sigma_x**2, sigma_y**2, sigma_a**2])          # initial state uncertainty
 Q = np.diag([sigma_s**2, sigma_w**2])                       # process noise (motion uncertainty)
@@ -42,7 +43,7 @@ Qrt = np.linalg.cholesky(Q)                                 # cholesky decomposi
 w = np.ones(J)/J                                            # initial weights
 
 # estimation loop
-for k in range(K):
+for k in tqdm(range(K)):
     # update
     zh = util.h(x_j, k)                         # predicted measurements for each particle
     z = z_t[:,k]                                # actual measurement

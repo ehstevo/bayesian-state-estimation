@@ -33,7 +33,7 @@ The later projects emphasize full system modeling and comparative analysis betwe
 </p>
 
 Localization of a mobile robot using a particle filter.  
-Each gray circle represents a particle hypothesis of the robot state, which evolves over time through propagation, weighting, and resampling. The pink line represents the lidar range-to-wall measurement of the robot. The animation illustrates how the particle distribution converges toward the true state as measurements are incorporated.
+Each gray circle represents a particle hypothesis of the robot state, which evolves over time through propagation, weighting, and resampling. The pink line represents the lidar range-to-wall measurement of the robot. The animation illustrates how the particle distribution converges toward the true state as measurements are incorporated. The particle states shown at the first frame are recorded after the initial measurement update, so a small apparent offset from the true initial state is expected.
 
 ---
 
